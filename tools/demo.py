@@ -21,7 +21,7 @@ CLASSES = ('__background__',
 
 #CLASSES = ('__background__','person','bike','motorbike','car','bus')
 
-def vis_detections(im, class_name, dets,ax, thresh=0.5):
+def pic_vis_detections(im, class_name, dets,ax, thresh=0.5):
     """Draw detected bounding boxes."""
     inds = np.where(dets[:, -1] >= thresh)[0]
     if len(inds) == 0:
@@ -49,9 +49,25 @@ def vis_detections(im, class_name, dets,ax, thresh=0.5):
     plt.axis('off')
     plt.tight_layout()
     plt.draw()
+           
+def webcam_vis_detections(im, class_name, dets,ax, thresh=0.5):
+    """Draw detected bounding boxes."""
+    inds = np.where(dets[:, -1] >= thresh)[0]
+    if len(inds) == 0:
+        return
 
+    img_cp = im.copy()
+    for i in inds:
+        bbox = dets[i, :4]
+        score = dets[i, -1]
 
-def demo(sess, net, image_name):
+        cv2.rectangle(img_cp, (int(bbox[0]), int(bbox[1])), (int(bbox[2]), int(bbox[3])), (0, 255, 0), 3)
+        cv2.putText(img_cp, '{:s} {:.3f}'.format(class_name, score), (int(bbox[0]), int(bbox[1]-2)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
+
+    cv2.imshow('webcam_detect', img_cp)
+    cv2.waitKey(1)
+
+def pic_demo(sess, net, image_name):
     """Detect object classes in an image using pre-computed object proposals."""
 
     # Load the demo image
@@ -82,7 +98,37 @@ def demo(sess, net, image_name):
                           cls_scores[:, np.newaxis])).astype(np.float32)
         keep = nms(dets, NMS_THRESH)
         dets = dets[keep, :]
-        vis_detections(im, cls, dets, ax, thresh=CONF_THRESH)
+        pic_vis_detections(im, cls, dets, ax, thresh=CONF_THRESH)
+
+def webcam_demo(sess, net, image):
+    """Detect object classes in an image using pre-computed object proposals."""
+
+    # Load the demo image
+    im = image
+
+    # Detect all object classes and regress object bounds
+    timer = Timer()
+    timer.tic()
+    scores, boxes = im_detect(sess, net, im)
+    timer.toc()
+    print ('Detection took {:.3f}s for '
+           '{:d} object proposals').format(timer.total_time, boxes.shape[0])
+
+    # Visualize detections for each class
+    fig, ax = plt.subplots(figsize=(12, 12))
+    ax.imshow(im, aspect='equal')
+
+    CONF_THRESH = 0.8
+    NMS_THRESH = 0.3
+    for cls_ind, cls in enumerate(CLASSES[1:]):
+        cls_ind += 1 # because we skipped background
+        cls_boxes = boxes[:, 4*cls_ind:4*(cls_ind + 1)]
+        cls_scores = scores[:, cls_ind]
+        dets = np.hstack((cls_boxes,
+                          cls_scores[:, np.newaxis])).astype(np.float32)
+        keep = nms(dets, NMS_THRESH)
+        dets = dets[keep, :]
+        webcam_vis_detections(im, cls, dets, ax, thresh=CONF_THRESH)
 
 def parse_args():
     """Parse input arguments."""
@@ -100,6 +146,8 @@ def parse_args():
     args = parser.parse_args()
 
     return args
+
+
 if __name__ == '__main__':
     cfg.TEST.HAS_RPN = True  # Use RPN for proposals
 
@@ -119,20 +167,28 @@ if __name__ == '__main__':
     #sess.run(tf.initialize_all_variables())
 
     print '\n\nLoaded network {:s}'.format(args.model)
+           
+    demo_way = input("Please select demo way.(using pictures: 0 + enter / using webcam: 1 + enter) : ")
 
-    # Warmup on a dummy image
-    im = 128 * np.ones((300, 300, 3), dtype=np.uint8)
-    for i in xrange(2):
-        _, _= im_detect(sess, net, im)
+    if demo_way is 0:
+        # Warmup on a dummy image
+        im = 128 * np.ones((300, 300, 3), dtype=np.uint8)
+        for i in xrange(2):
+            _, _= im_detect(sess, net, im)
 
-    im_names = ['000456.jpg', '000542.jpg', '001150.jpg',
-                '001763.jpg', '004545.jpg']
+        im_names = ['000456.jpg', '001763.jpg', '004545.jpg',
+                    'test1.jpg', 'test2.jpg']
 
-
-    for im_name in im_names:
-        print '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'
-        print 'Demo for data/demo/{}'.format(im_name)
-        demo(sess, net, im_name)
-
-    plt.show()
-
+        for im_name in im_names:
+            print '~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~'
+            print 'Demo for data/demo/{}'.format(im_name)
+            pic_demo(sess, net, im_name)
+        plt.show()
+    elif demo_way is 1:
+        cam_id = input("camera id : ")
+        cap = cv2.VideoCapture(cam_id)
+        while(True):
+            ret, frame = cap.read()
+            webcam_demo(sess, net, frame)
+    else:
+        print "You have entered an invalid number. Please enter 0 or 1. Rerun program please."
